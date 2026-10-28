@@ -1,0 +1,171 @@
+-- Подключаем внешний модуль расчёта цветовой маркировки резисторов по стандарту IEC 60062
+local color_code = require("src.color_code")
+
+-- Объявление свойств компонента, которые доступны прямо в инспекторе (справа) редактора Defold:
+go.property("comp_type", hash("resistor")) -- Тип элемента: hash("resistor"), hash("battery") или hash("current_source")
+go.property("value", 259.0)               -- Номинал элемента (Ом для резисторов, Вольт для батареек и т.д.)
+go.property("rotation_step", 15)           -- Шаг поворота детали в градусах при прокрутке колёсика мыши
+go.property("scale", 6.0)                  -- Множитель начального размера (масштаба) спрайта элемента
+
+-- Функция проверки: находится ли курсор мыши в данный момент внутри границ повернутого спрайта
+local function is_cursor_over(self, mouse_x, mouse_y)
+	local pos = go.get_position()
+	local size = go.get("#sprite", "size")
+	local scale = go.get_scale()
+
+	-- Вычисляем половину ширины и высоты объекта с учетом текущего масштаба
+	local half_w = (size.x * scale.x) * 0.5
+	local half_h = (size.y * scale.y) * 0.5
+
+	-- Вычисляем вектор смещения курсора относительно центра объекта
+	local dx = mouse_x - pos.x
+	local dy = mouse_y - pos.y
+
+	-- Применяем матрицу обратного поворота (вращаем вектор курсора на угол -angle_deg),
+	-- чтобы проверять попадание в простой вертикально-горизонтальный прямоугольник, 
+	-- не усложняя код формулами поворота косоугольников.
+	local rad = math.rad(-self.angle_deg)
+	local cos_a = math.cos(rad)
+	local sin_a = math.sin(rad)
+
+	local local_x = dx * cos_a - dy * sin_a
+	local local_y = dx * sin_a + dy * cos_a
+
+	-- Возвращаем true, если локальные координаты курсора лежат внутри полуширины и полувысоты
+	return math.abs(local_x) <= half_w and math.abs(local_y) <= half_h
+end
+
+-- Функция динамического обновления цветов для 5 дочерних спрайтов-полосок резистора
+local function update_band_colors(self)
+	-- Получаем массив из 5 цветовых структур на основе текущего сопротивления (value)
+	local bands = color_code.ohms_to_bands(self.value)
+
+	-- Проходим циклом по всем 5 дочерним объектам (band_1, band_2 ... band_5)
+	for i = 1, 5 do
+		-- Формируем адрес дочернего компонента спрайта по стандарту Defold ("имя_объекта#имя_компонента")
+		local url = string.format("#band_%d", i)
+		-- Меняем параметр tint (цвет) спрайта полоски на цвет из рассчитанной палитры
+		go.set(url, "tint", bands[i].color)
+	end
+end
+
+-- Функция управления внешним видом главного спрайта (выбор анимации/текстуры под стиль и тему)
+local function update_visual(self)
+	local type_str = "resistor"
+	if self.comp_type == hash("battery") then
+		type_str = "battery"
+	elseif self.comp_type == hash("current_source") then
+		type_str = "current_source"
+	end
+
+	-- Формируем строку имени анимации по шаблону: тип_вид_тема (например: resistor_real_dark)
+	local anim_name = string.format("%s_%s_%s", type_str, self.view_mode, self.theme_mode)
+	pcall(function()
+		sprite.play_flipbook("#sprite", hash(anim_name))
+	end)
+
+	-- Логика переключения ГОСТ / Реальный вид:
+	-- Если выбран ГОСТ или это не резистор — скрываем полоски, иначе делаем их видимыми
+	local hide_bands = (self.view_mode == "gost" or self.comp_type ~= hash("resistor"))
+	for i = 1, 5 do
+		local url = string.format("band_%d", i)
+		if hide_bands then
+			msg.post(url, "disable") -- Выключаем дочерний объект
+		else
+			msg.post(url, "enable")  -- Включаем дочерний объект
+		end
+	end
+end
+
+-- Функция инициализации скрипта при запуске сцены
+function init(self)
+	-- Запрашиваем фокус ввода, чтобы объект начал слушать события мыши и клавиатуры
+	msg.post(".", "acquire_input_focus")
+
+	-- Инициализация переменных состояния компонента
+	self.is_dragging = false                         -- Флаг: перетаскивается ли деталь в данный момент
+	self.drag_offset = vmath.vector3(0, 0, 0)        -- Смещение точки захвата курсором от центра объекта
+	self.angle_deg = 0                               -- Текущий угол поворота детали в градусах
+
+	-- Установка режимов отображения по умолчанию
+	self.view_mode = "real"                          -- "real" (реальный вид с полосками) или "gost" (схематичный)
+	self.theme_mode = "dark"                         -- "dark" (темная тема) или "light" (светлая тема)
+
+	-- Фиксируем начальную позицию по оси Z = 0 и задаем масштаб объекта
+	go.set_position(vmath.vector3(go.get_position().x, go.get_position().y, 0))
+	go.set_scale(vmath.vector3(self.scale, self.scale, 1))
+
+	-- Первичный расчет полосок и применение визуального стиля
+	update_band_colors(self)
+	update_visual(self)
+end
+
+-- Функция приема сообщений извне (например, из main.script или интерфейса)
+function on_message(self, message_id, message, sender)
+	if message_id == hash("set_view_mode") then
+		self.view_mode = message.view_mode          -- Смена режима отображения (реальный/ГОСТ)
+	elseif message_id == hash("set_theme_mode") then
+		self.theme_mode = message.theme_mode        -- Смена цветовой темы (темная/светлая)
+	elseif message_id == hash("set_resistance") then
+		self.value = message.value                  -- Изменение номинала резистора
+		update_band_colors(self)                    -- Пересчет цветов полосок под новый номинал
+	end
+	update_visual(self)
+end
+
+-- Функция обработки ввода (мышь, клики, колесико)
+function on_input(self, action_id, action)
+	-- Читаем базовое разрешение из файла конфигурации game.project (виртуальный холст)
+	local proj_w = sys.get_config_int("display.width", 960)
+	local proj_h = sys.get_config_int("display.height", 640)
+
+	-- Узнаем реальный текущий размер окна приложения на мониторе пользователя
+	local win_w, win_h = window.get_size()
+
+	-- Вычисляем смещение из-за работы центрирующей проекции (use_fixed_projection)
+	local offset_x = -(win_w - proj_w) * 0.5
+	local offset_y = -(win_h - proj_h) * 0.5
+
+	-- Пересчитываем экранные координаты мыши в точные мировые координаты сцены
+	local mouse_x = (action.screen_x or 0) + offset_x
+	local mouse_y = (action.screen_y or 0) + offset_y
+
+	-- Проверяем, наведен ли курсор на этот компонент
+	local hovered = is_cursor_over(self, mouse_x, mouse_y)
+
+	-- Блок обработки клика левой кнопкой мыши (ЛКМ) для захвата и перемещения
+	if action_id == hash("click") then
+		if action.pressed and hovered then
+			self.is_dragging = true                 -- Начинаем перетаскивание
+			local pos = go.get_position()
+			-- Запоминаем разницу между центром объекта и курсором, чтобы деталь не "прыгала" центром под мышь
+			self.drag_offset = vmath.vector3(pos.x - mouse_x, pos.y - mouse_y, 0)
+			-- Поднимаем перетаскиваемый объект чуть выше по оси Z (на слой 0.1), чтобы он был поверх других элементов
+			go.set_position(vmath.vector3(pos.x, pos.y, 0.1))
+		elseif action.released and self.is_dragging then
+			self.is_dragging = false                -- Завершаем перетаскивание при отпускании кнопки
+			local pos = go.get_position()
+			-- Возвращаем объект обратно на базовый игровой слой Z = 0
+			go.set_position(vmath.vector3(pos.x, pos.y, 0))
+		end
+	end
+
+	-- Блок перемещения объекта вслед за движением мыши (находясь в зажатом состоянии)
+	if self.is_dragging and action.x and action.y then
+		go.set_position(vmath.vector3(mouse_x + self.drag_offset.x, mouse_y + self.drag_offset.y, 0.1))
+	end
+
+	-- Блок вращения детали с помощью колесика мыши (работает ТОЛЬКО когда деталь зажата)
+	if self.is_dragging then
+		if action_id == hash("wheel_up") and action.pressed then
+			-- Прокрутка вверх: прибавляем шаг поворота и зацикливаем значение в пределах 0-359 градусов
+			self.angle_deg = (self.angle_deg + self.rotation_step) % 360
+			-- Применяем поворот вокруг оси Z с пересчетом градусов в радианы
+			go.set_rotation(vmath.quat_rotation_z(math.rad(self.angle_deg)))
+		elseif action_id == hash("wheel_down") and action.pressed then
+			-- Прокрутка вниз: вычитаем шаг поворота с зацикливанием
+			self.angle_deg = (self.angle_deg - self.rotation_step) % 360
+			go.set_rotation(vmath.quat_rotation_z(math.rad(self.angle_deg)))
+		end
+	end
+end
