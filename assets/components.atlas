@@ -13,4 +13,3 @@ images {
 images {
   image: "/assets/white.png"
 }
-extrude_borders: 2
