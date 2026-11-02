@@ -1,3 +1,7 @@
+key_trigger {
+  input: KEY_LCTRL
+  action: "key_ctrl"
+}
 mouse_trigger {
   input: MOUSE_BUTTON_LEFT
   action: "click"
@@ -9,4 +13,8 @@ mouse_trigger {
 mouse_trigger {
   input: MOUSE_WHEEL_DOWN
   action: "wheel_down"
+}
+mouse_trigger {
+  input: MOUSE_BUTTON_MIDDLE
+  action: "mouse_middle"
 }

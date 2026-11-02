@@ -1,0 +1,65 @@
+function init(self)
+	msg.post(".", "acquire_input_focus")
+	self.is_panning = false
+	self.ctrl_pressed = false
+	self.scale = 1.0
+end
+
+function on_input(self, action_id, action)
+	-- Отслеживаем зажатый Ctrl
+	if action_id == hash("key_ctrl") then
+		if action.pressed then self.ctrl_pressed = true
+		elseif action.released then self.ctrl_pressed = false end
+	end
+
+	-- Отслеживаем нажатие колесика мыши (для перетаскивания стола)
+	if action_id == hash("mouse_middle") then
+		if action.pressed then self.is_panning = true
+		elseif action.released then self.is_panning = false end
+	end
+
+	-- Двигаем стол вслед за мышью при зажатом колесике
+	if not action_id and self.is_panning and action.dx and action.dy then
+		local pos = go.get_position()
+		pos.x = pos.x + action.dx
+		pos.y = pos.y + action.dy
+		go.set_position(pos)
+	end
+
+	-- Зум к курсору при зажатом Ctrl + скролл
+	if self.ctrl_pressed then
+		if action_id == hash("wheel_up") or action_id == hash("wheel_down") then
+			if not action.pressed then return end
+
+			local old_scale = self.scale
+			if action_id == hash("wheel_up") then self.scale = self.scale * 1.1
+			else self.scale = self.scale / 1.1 end
+
+			-- Ограничиваем масштаб, чтобы не улететь в бесконечность
+			if self.scale < 0.05 then self.scale = 0.05 end
+			if self.scale > 10.0 then self.scale = 10.0 end
+
+			local scale_factor = self.scale / old_scale
+
+			-- Получаем точные экранные координаты мыши
+			local proj_w = sys.get_config_int("display.width", 960)
+			local proj_h = sys.get_config_int("display.height", 640)
+			local win_w, win_h = window.get_size()
+			local offset_x = -(win_w - proj_w) * 0.5
+			local offset_y = -(win_h - proj_h) * 0.5
+			local mouse_x = (action.screen_x or 0) + offset_x
+			local mouse_y = (action.screen_y or 0) + offset_y
+
+			-- Математика смещения стола так, чтобы зум происходил точно в точку под курсором
+			local pos = go.get_position()
+			local dx = pos.x - mouse_x
+			local dy = pos.y - mouse_y
+
+			pos.x = mouse_x + dx * scale_factor
+			pos.y = mouse_y + dy * scale_factor
+
+			go.set_position(pos)
+			go.set_scale(vmath.vector3(self.scale, self.scale, 1))
+		end
+	end
+end

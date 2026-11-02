@@ -7,16 +7,17 @@ local wire = require("src.wire")
 go.property("comp_type", hash("resistor")) -- Тип элемента: hash("resistor"), hash("battery") или hash("current_source")
 go.property("value", 962.0)                -- Номинал элемента (Ом для резисторов, Вольт для батареек и т.д.)
 go.property("rotation_step", 15)           -- Шаг поворота детали в градусах при прокрутке колёсика мыши
-go.property("scale", 2.0)                  -- Множитель начального размера (масштаба) спрайта элемента
+go.property("scale", 1.0)                  -- Множитель начального размера (масштаба) спрайта элемента
 
--- Базовый радиус зоны захвата пина мышкой (умножается на scale компонента)
+-- Базовый радиус зоны захвата пина мышкой
 local BASE_PIN_RADIUS = 35.0
 
--- Возвращает мировые координаты левого (p1) и правого (p2) пинов на краях корпуса и векторы их направления
+-- Возвращает МИРОВЫЕ координаты левого (p1) и правого (p2) пинов на краях корпуса и векторы их направления
 local function get_pin_positions(self)
-	local pos = go.get_position()
+	-- Для проводов и крестиков ВСЕГДА используем мировые координаты, чтобы они не отрывались от резистора
+	local pos = go.get_world_position()
 	local size = go.get("#sprite", "size")
-	local scale = go.get_scale()
+	local scale = go.get_world_scale()
 
 	-- Контакты находятся строго на боковых краях спрайта резистора
 	local half_w = (size.x * scale.x) * 0.5
@@ -38,33 +39,31 @@ local function get_pin_positions(self)
 end
 
 -- Проверяет, попал ли курсор мыши в область одного из двух пинов (возвращает 1, 2 или nil)
-local function get_hovered_pin(self, mouse_x, mouse_y)
-	local scale = go.get_scale()
+local function get_hovered_pin(self, mouse_world_x, mouse_world_y)
+	local scale = go.get_world_scale()
 	local p1, p2 = get_pin_positions(self)
 	local hit_radius = math.max(15.0, BASE_PIN_RADIUS * scale.x)
-	local mouse_pos = vmath.vector3(mouse_x, mouse_y, 0)
+	local mouse_pos = vmath.vector3(mouse_world_x, mouse_world_y, 0)
 
-	if vmath.length(vmath.vector3(p1.x, p1.y, 0) - mouse_pos) <= hit_radius then
-		return 1
-	elseif vmath.length(vmath.vector3(p2.x, p2.y, 0) - mouse_pos) <= hit_radius then
-		return 2
+	if vmath.length(vmath.vector3(p1.x, p1.y, 0) - mouse_pos) <= hit_radius then return 1
+	elseif vmath.length(vmath.vector3(p2.x, p2.y, 0) - mouse_pos) <= hit_radius then return 2
 	end
 	return nil
 end
 
 -- Проверяет, находится ли курсор мыши внутри прямоугольника корпуса детали
-local function is_cursor_over(self, mouse_x, mouse_y)
-	local pos = go.get_position()
+local function is_cursor_over(self, mouse_world_x, mouse_world_y)
+	local pos = go.get_world_position()
 	local size = go.get("#sprite", "size")
-	local scale = go.get_scale()
+	local scale = go.get_world_scale()
 
-	-- Половина ширины и высоты спрайта с учетом текущего масштаба
+	-- Половина ширины и высоты спрайта с учетом текущего мирового масштаба
 	local half_w = (size.x * scale.x) * 0.5
 	local half_h = (size.y * scale.y) * 0.5
 
-	-- Смещение курсора относительно центра объекта
-	local dx = mouse_x - pos.x
-	local dy = mouse_y - pos.y
+	-- Смещение курсора относительно абсолютного центра объекта
+	local dx = mouse_world_x - pos.x
+	local dy = mouse_world_y - pos.y
 
 	-- Обратный поворот координат мыши для проверки попадания в невращающийся прямоугольник
 	local rad = math.rad(-self.angle_deg)
@@ -79,32 +78,22 @@ end
 
 -- Функция динамического обновления цветов для 5 компонентов-полосок резистора
 local function update_band_colors(self)
-	-- Получаем массив из 5 цветовых структур на основе текущего сопротивления (value)
 	local bands = color_code.ohms_to_bands(self.value)
-
-	-- Проходим по всем 5 полоскам (#band_1 ... #band_5) и меняем их свойство tint
-	for i = 1, 5 do
-		go.set(string.format("#band_%d", i), "tint", bands[i].color)
-	end
+	for i = 1, 5 do go.set(string.format("#band_%d", i), "tint", bands[i].color) end
 end
 
 -- Функция управления внешним видом главного спрайта и полосок под стиль и тему
 local function update_visual(self)
 	local type_str = "resistor"
-	if self.comp_type == hash("battery") then
-		type_str = "battery"
-	elseif self.comp_type == hash("current_source") then
-		type_str = "current_source"
-	end
+	if self.comp_type == hash("battery") then type_str = "battery"
+	elseif self.comp_type == hash("current_source") then type_str = "current_source" end
 
 	-- Запускаем анимацию главного спрайта по шаблону: тип_вид_тема
 	sprite.play_flipbook("#sprite", hash(string.format("%s_%s_%s", type_str, self.view_mode, self.theme_mode)))
 
 	-- В ГОСТ-режиме скрываем полоски, в реальном — включаем
 	local hide_bands = (self.view_mode == "gost" or self.comp_type ~= hash("resistor"))
-	for i = 1, 5 do
-		msg.post(string.format("#band_%d", i), hide_bands and "disable" or "enable")
-	end
+	for i = 1, 5 do msg.post(string.format("#band_%d", i), hide_bands and "disable" or "enable") end
 end
 
 -- Функция инициализации скрипта при запуске сцены
@@ -113,29 +102,27 @@ function init(self)
 	msg.post(".", "acquire_input_focus")
 
 	-- Инициализация переменных состояния компонента
-	self.is_dragging = false                         -- Флаг: перетаскивается ли сама деталь
-	self.drag_offset = vmath.vector3(0, 0, 0)        -- Смещение точки захвата от центра детали
-	self.angle_deg = 0                               -- Текущий угол поворота детали в градусах
-	self.wiring_pin = nil                            -- Номер пина (1 или 2), из которого сейчас тянется провод
-	self.wire_mouse_pos = vmath.vector3(0, 0, 0)     -- Мировые координаты курсора для конца провода
-	self.view_mode = "real"                          -- "real" (реальный вид) или "gost" (схема)
-	self.theme_mode = "dark"                         -- "dark" (темная тема) или "light" (светлая тема)
+	self.is_dragging = false
+	self.ctrl_pressed = false
+	self.drag_offset = vmath.vector3(0, 0, 0)
+	self.angle_deg = 0
+	self.wiring_pin = nil
+	self.wire_mouse_pos = vmath.vector3(0, 0, 0)
+	self.view_mode = "real"
+	self.theme_mode = "dark"
 
-	-- Фиксируем начальную позицию по оси Z = 0 и задаем масштаб объекта
+	-- Локальная позиция внутри родительского объекта board
 	go.set_position(vmath.vector3(go.get_position().x, go.get_position().y, 0))
 	go.set_scale(vmath.vector3(self.scale, self.scale, 1))
 
-	-- Первичный расчет цветов полосок и визуального стиля
 	update_band_colors(self)
 	update_visual(self)
 end
 
 -- Прием внешних сообщений (смена режима, темы или сопротивления)
 function on_message(self, message_id, message, sender)
-	if message_id == hash("set_view_mode") then
-		self.view_mode = message.view_mode
-	elseif message_id == hash("set_theme_mode") then
-		self.theme_mode = message.theme_mode
+	if message_id == hash("set_view_mode") then self.view_mode = message.view_mode
+	elseif message_id == hash("set_theme_mode") then self.theme_mode = message.theme_mode
 	elseif message_id == hash("set_resistance") then
 		self.value = message.value
 		update_band_colors(self)
@@ -145,11 +132,11 @@ end
 
 -- Функция update вызывается каждый кадр (60 раз в секунду)
 function update(self, dt)
-	local scale = go.get_scale()
+	local scale = go.get_world_scale()
 	local p1, p2, dir1, dir2 = get_pin_positions(self)
 	local my_id = go.get_id()
 
-	-- 1. Регистрируем актуальные координаты пинов и масштаб в глобальном реестре модуля wire
+	-- Регистрируем актуальные МИРОВЫЕ координаты пинов и масштаб в глобальном реестре
 	wire.register_pins(my_id, p1, dir1, p2, dir2, scale.x)
 
 	-- Провода и крестики пинов отображаются только в реальном виде
@@ -159,24 +146,21 @@ function update(self, dt)
 	end
 	local theme = wire.THEME_COLORS[self.theme_mode] or wire.THEME_COLORS.dark
 
-	-- Отладочная отрисовка крестиков пинов на краях резистора (на слое Z = 0.2 поверх корпуса)
+	-- Отладочная отрисовка крестиков пинов на краях резистора
 	local r = 20 * scale.x
 	local pin1_top = vmath.vector3(p1.x, p1.y, 0.2)
 	local pin2_top = vmath.vector3(p2.x, p2.y, 0.2)
 
-	-- Красный крестик на левом пине (pin 1)
 	msg.post("@render:", "draw_line", { start_point = pin1_top + vmath.vector3(-r, -r, 0), end_point = pin1_top + vmath.vector3(r, r, 0), color = vmath.vector4(1, 0, 0, 1) })
 	msg.post("@render:", "draw_line", { start_point = pin1_top + vmath.vector3(-r, r, 0), end_point = pin1_top + vmath.vector3(r, -r, 0), color = vmath.vector4(1, 0, 0, 1) })
-	-- Синий крестик на правом пине (pin 2)
 	msg.post("@render:", "draw_line", { start_point = pin2_top + vmath.vector3(-r, -r, 0), end_point = pin2_top + vmath.vector3(r, r, 0), color = vmath.vector4(0, 0, 1, 1) })
 	msg.post("@render:", "draw_line", { start_point = pin2_top + vmath.vector3(-r, r, 0), end_point = pin2_top + vmath.vector3(r, -r, 0), color = vmath.vector4(0, 0, 1, 1) })
 
-	-- 2. Обновляем состояние протягиваемого провода (превью)
+	-- Обновляем состояние протягиваемого провода (превью)
 	if self.wiring_pin then
 		local start_pos = (self.wiring_pin == 1) and p1 or p2
 		local start_dir = (self.wiring_pin == 1) and dir1 or dir2
 
-		-- Проверяем, поднесли ли мы мышку к чужому пину: если да, сразу примагничиваем торец превью к нему!
 		local hit_r = math.max(15.0, BASE_PIN_RADIUS * scale.x)
 		local target_id, target_pin = wire.find_closest_pin(self.wire_mouse_pos.x, self.wire_mouse_pos.y, hit_r, my_id, self.wiring_pin)
 
@@ -192,55 +176,62 @@ function update(self, dt)
 		wire.clear_preview(my_id)
 	end
 
-	-- 3. Отрисовываем все завершенные и превью-провода единым гладким Mesh-буфером
+	-- Отрисовываем все завершенные и превью-провода единым гладким Mesh-буфером
 	wire.render_all(theme.wire)
 end
 
 -- Функция обработки ввода (мышь, клики, колесико)
 function on_input(self, action_id, action)
-	-- Читаем базовое разрешение из файла game.project
+	-- Читаем статус клавиши Ctrl, чтобы не крутить деталь при зуме камеры
+	if action_id == hash("key_ctrl") then
+		if action.pressed then self.ctrl_pressed = true
+		elseif action.released then self.ctrl_pressed = false end
+	end
+
 	local proj_w = sys.get_config_int("display.width", 960)
 	local proj_h = sys.get_config_int("display.height", 640)
 	local win_w, win_h = window.get_size()
 
-	-- Компенсация смещения центрированной проекции (use_fixed_projection)
 	local offset_x = -(win_w - proj_w) * 0.5
 	local offset_y = -(win_h - proj_h) * 0.5
 
-	-- Мировые координаты курсора мыши
-	local mouse_x = (action.screen_x or 0) + offset_x
-	local mouse_y = (action.screen_y or 0) + offset_y
+	-- АБСОЛЮТНЫЕ мировые координаты мыши (нужны для проводов и проверки наведения)
+	local mouse_world_x = (action.screen_x or 0) + offset_x
+	local mouse_world_y = (action.screen_y or 0) + offset_y
+	local mouse_world = vmath.vector3(mouse_world_x, mouse_world_y, 0)
 
-	self.wire_mouse_pos = vmath.vector3(mouse_x, mouse_y, 0)
-	local pin_index = get_hovered_pin(self, mouse_x, mouse_y)
-	local hovered = is_cursor_over(self, mouse_x, mouse_y)
+	-- ЛОКАЛЬНЫЕ координаты мыши относительно доски (нужны для правильного перетаскивания детали)
+	local board_pos = go.get_position(hash("/board"))
+	local board_scale = go.get_scale(hash("/board")).x
+	local mouse_local_x = (mouse_world_x - board_pos.x) / board_scale
+	local mouse_local_y = (mouse_world_y - board_pos.y) / board_scale
+	local mouse_local = vmath.vector3(mouse_local_x, mouse_local_y, 0)
+
+	self.wire_mouse_pos = mouse_world
+	local pin_index = get_hovered_pin(self, mouse_world.x, mouse_world.y)
+	local hovered = is_cursor_over(self, mouse_world.x, mouse_world.y)
 
 	-- Блок обработки клика левой кнопкой мыши (ЛКМ)
 	if action_id == hash("click") then
 		if action.pressed then
-			-- Приоритет 1: клик по пину начинает тянуть провод
 			if pin_index and self.view_mode == "real" then
 				self.wiring_pin = pin_index
-				-- Приоритет 2: клик по корпусу начинает перетаскивание детали
 			elseif hovered then
 				self.is_dragging = true
+				-- Смещение считаем в локальных координатах
 				local pos = go.get_position()
-				self.drag_offset = vmath.vector3(pos.x - mouse_x, pos.y - mouse_y, 0)
+				self.drag_offset = vmath.vector3(pos.x - mouse_local.x, pos.y - mouse_local.y, 0)
 				go.set_position(vmath.vector3(pos.x, pos.y, 0.1))
 			end
 		elseif action.released then
-			-- Если отпустили ЛКМ во время протяжки провода — ищем пин под курсором и соединяем
 			if self.wiring_pin then
-				local hit_r = math.max(15.0, BASE_PIN_RADIUS * go.get_scale().x)
-				local target_id, target_pin = wire.find_closest_pin(mouse_x, mouse_y, hit_r, go.get_id(), self.wiring_pin)
-				if target_id then
-					wire.connect(go.get_id(), self.wiring_pin, target_id, target_pin)
-				end
+				local hit_r = math.max(15.0, BASE_PIN_RADIUS * go.get_world_scale().x)
+				local target_id, target_pin = wire.find_closest_pin(mouse_world.x, mouse_world.y, hit_r, go.get_id(), self.wiring_pin)
+				if target_id then wire.connect(go.get_id(), self.wiring_pin, target_id, target_pin) end
 				self.wiring_pin = nil
 				wire.clear_preview(go.get_id())
 			end
 
-			-- Если отпустили ЛКМ после перетаскивания детали — возвращаем на слой Z = 0
 			if self.is_dragging then
 				self.is_dragging = false
 				local pos = go.get_position()
@@ -249,13 +240,13 @@ function on_input(self, action_id, action)
 		end
 	end
 
-	-- Перемещение зажатой детали вслед за курсором мыши
+	-- Перемещение зажатой детали вслед за курсором мыши (используем локальные координаты)
 	if self.is_dragging and action.x and action.y then
-		go.set_position(vmath.vector3(mouse_x + self.drag_offset.x, mouse_y + self.drag_offset.y, 0.1))
+		go.set_position(vmath.vector3(mouse_local.x + self.drag_offset.x, mouse_local.y + self.drag_offset.y, 0.1))
 	end
 
-	-- Вращение детали колесиком мыши (только когда деталь зажата)
-	if self.is_dragging then
+	-- Вращаем деталь колесиком только если НЕ нажат Ctrl (иначе колесико отвечает за зум стола)
+	if self.is_dragging and not self.ctrl_pressed then
 		if action_id == hash("wheel_up") and action.pressed then
 			self.angle_deg = (self.angle_deg + self.rotation_step) % 360
 			go.set_rotation(vmath.quat_rotation_z(math.rad(self.angle_deg)))

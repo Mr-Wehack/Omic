@@ -13,6 +13,6 @@ uniform vs_uniforms
 
 void main()
 {
-	gl_Position = view_proj * world * vec4(position.xyz, 1.0);
+	gl_Position = view_proj * vec4(position.xyz, 1.0);
 	var_color = color;
 }
