@@ -1,62 +1,81 @@
+-- Управление столом: панорамирование зажатым колёсиком мыши и плавный зум через Ctrl + скролл
 function init(self)
 	msg.post(".", "acquire_input_focus")
+	-- Включаем фиксированную 2D-проекцию (1:1 пиксели), чтобы клики мыши никогда не смещались
+	msg.post("@render:", "use_fixed_projection", { near = -1, far = 1, zoom = 1 })
+
 	self.is_panning = false
 	self.ctrl_pressed = false
 	self.scale = 1.0
+	self.last_mouse = vmath.vector3(0, 0, 0)
+end
+
+-- Вспомогательная функция: преобразует экранные координаты ввода в точные мировые координаты
+local function get_mouse_world(action)
+	local proj_w = sys.get_config_int("display.width", 960)
+	local proj_h = sys.get_config_int("display.height", 640)
+	local win_w, win_h = window.get_size()
+
+	local offset_x = -(win_w - proj_w) * 0.5
+	local offset_y = -(win_h - proj_h) * 0.5
+
+	-- Корректный расчёт с учётом любого разрешения окна и масштабирования Windows (DPI)
+	local screen_x = ((action.x or 0) / proj_w) * win_w
+	local screen_y = ((action.y or 0) / proj_h) * win_h
+
+	return vmath.vector3(screen_x + offset_x, screen_y + offset_y, 0)
 end
 
 function on_input(self, action_id, action)
-	-- Отслеживаем зажатый Ctrl
+	-- Отслеживаем зажатие клавиши Ctrl для масштабирования
 	if action_id == hash("key_ctrl") then
 		if action.pressed then self.ctrl_pressed = true
 		elseif action.released then self.ctrl_pressed = false end
 	end
 
-	-- Отслеживаем нажатие колесика мыши (для перетаскивания стола)
+	local mouse_world = get_mouse_world(action)
+
+	-- Зажатие колёсика мыши начинает перемещение всего стола
 	if action_id == hash("mouse_middle") then
-		if action.pressed then self.is_panning = true
-		elseif action.released then self.is_panning = false end
+		if action.pressed then
+			self.is_panning = true
+			self.last_mouse = mouse_world
+		elseif action.released then
+			self.is_panning = false
+		end
 	end
 
-	-- Двигаем стол вслед за мышью при зажатом колесике
-	if not action_id and self.is_panning and action.dx and action.dy then
-		local pos = go.get_position()
-		pos.x = pos.x + action.dx
-		pos.y = pos.y + action.dy
-		go.set_position(pos)
+	-- Перемещение стола вслед за курсором мыши без задержек и лагов
+	if not action_id and self.is_panning then
+		local delta = mouse_world - self.last_mouse
+		self.last_mouse = mouse_world
+		go.set_position(go.get_position() + delta)
 	end
 
-	-- Зум к курсору при зажатом Ctrl + скролл
+	-- Масштабирование (зум) к курсору при зажатом Ctrl
 	if self.ctrl_pressed then
 		if action_id == hash("wheel_up") or action_id == hash("wheel_down") then
 			if not action.pressed then return end
 
 			local old_scale = self.scale
-			if action_id == hash("wheel_up") then self.scale = self.scale * 1.1
-			else self.scale = self.scale / 1.1 end
+			if action_id == hash("wheel_up") then
+				self.scale = self.scale * 1.1
+			else
+				self.scale = self.scale / 1.1
+			end
 
-			-- Ограничиваем масштаб, чтобы не улететь в бесконечность
-			if self.scale < 0.05 then self.scale = 0.05 end
-			if self.scale > 10.0 then self.scale = 10.0 end
+			-- Ограничение масштабирования (от 20% до 500%)
+			if self.scale < 0.2 then self.scale = 0.2 end
+			if self.scale > 5.0 then self.scale = 5.0 end
 
 			local scale_factor = self.scale / old_scale
-
-			-- Получаем точные экранные координаты мыши
-			local proj_w = sys.get_config_int("display.width", 960)
-			local proj_h = sys.get_config_int("display.height", 640)
-			local win_w, win_h = window.get_size()
-			local offset_x = -(win_w - proj_w) * 0.5
-			local offset_y = -(win_h - proj_h) * 0.5
-			local mouse_x = (action.screen_x or 0) + offset_x
-			local mouse_y = (action.screen_y or 0) + offset_y
-
-			-- Математика смещения стола так, чтобы зум происходил точно в точку под курсором
 			local pos = go.get_position()
-			local dx = pos.x - mouse_x
-			local dy = pos.y - mouse_y
+			local dx = pos.x - mouse_world.x
+			local dy = pos.y - mouse_world.y
 
-			pos.x = mouse_x + dx * scale_factor
-			pos.y = mouse_y + dy * scale_factor
+			-- Смещение стола так, чтобы точка под курсором оставалась на месте
+			pos.x = mouse_world.x + dx * scale_factor
+			pos.y = mouse_world.y + dy * scale_factor
 
 			go.set_position(pos)
 			go.set_scale(vmath.vector3(self.scale, self.scale, 1))

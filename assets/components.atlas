@@ -1,15 +1,68 @@
 images {
-  image: "/assets/resistor_gost_dark.png"
-}
-images {
-  image: "/assets/resistor_gost_light.png"
-}
-images {
-  image: "/assets/resistor_real_dark.png"
-}
-images {
-  image: "/assets/resistor_real_light.png"
-}
-images {
   image: "/assets/white.png"
 }
+animations {
+  id: "resistor_real_dark"
+  images {
+    image: "/assets/resistor/real_dark.png"
+  }
+  playback: PLAYBACK_NONE
+  fps: 0
+}
+animations {
+  id: "resistor_real_light"
+  images {
+    image: "/assets/resistor/real_light.png"
+  }
+  playback: PLAYBACK_NONE
+  fps: 0
+}
+animations {
+  id: "resistor_gost_dark"
+  images {
+    image: "/assets/resistor/gost_dark.png"
+  }
+  playback: PLAYBACK_NONE
+  fps: 0
+}
+animations {
+  id: "resistor_gost_light"
+  images {
+    image: "/assets/resistor/gost_light.png"
+  }
+  playback: PLAYBACK_NONE
+  fps: 0
+}
+animations {
+  id: "direct_current_source_real_dark"
+  images {
+    image: "/assets/direct_voltage_source/real_dark.png"
+  }
+  playback: PLAYBACK_NONE
+  fps: 0
+}
+animations {
+  id: "direct_current_source_real_light"
+  images {
+    image: "/assets/direct_voltage_source/real_light.png"
+  }
+  playback: PLAYBACK_NONE
+  fps: 0
+}
+animations {
+  id: "direct_current_source_gost_dark"
+  images {
+    image: "/assets/direct_voltage_source/gost_dark.png"
+  }
+  playback: PLAYBACK_NONE
+  fps: 0
+}
+animations {
+  id: "direct_current_source_gost_light"
+  images {
+    image: "/assets/direct_voltage_source/gost_light.png"
+  }
+  playback: PLAYBACK_NONE
+  fps: 0
+}
+margin: 1
